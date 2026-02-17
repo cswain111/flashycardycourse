@@ -1,0 +1,55 @@
+---
+alwaysApply: true
+---
+
+# Database Interactions with Drizzle ORM
+
+All database interactions in this project must use Drizzle ORM with the schema definitions in [src/db/schema.ts](mdc:src/db/schema.ts).
+
+## Schema Overview
+
+The database schema defines two main tables:
+- **decksTable**: Stores flashcard decks, each associated with a Clerk user ID
+- **cardsTable**: Stores individual flashcards within decks (with cascade delete)
+
+## Rules for Database Operations
+
+1. **Always import from the schema**: 
+   - Import table definitions from `@/db/schema`
+   - Use `decksTable` and `cardsTable` for all queries
+
+2. **Use Drizzle query methods**:
+   - Use `db.select()`, `db.insert()`, `db.update()`, `db.delete()`
+   - Use Drizzle query builders like `.from()`, `.where()`, `.orderBy()`, etc.
+   - Never write raw SQL queries
+
+3. **Respect relationships**:
+   - Cards reference decks via `deckId`
+   - Deleting a deck cascades to its cards
+   - Always filter decks by `userId` for security
+
+4. **User authentication**:
+   - Always filter decks by the authenticated user's Clerk `userId`
+   - Never expose decks from other users
+
+## Example Queries
+
+```typescript
+// Get all decks for a user
+const userDecks = await db
+  .select()
+  .from(decksTable)
+  .where(eq(decksTable.userId, userId));
+
+// Get cards for a specific deck
+const deckCards = await db
+  .select()
+  .from(cardsTable)
+  .where(eq(cardsTable.deckId, deckId));
+
+// Insert a new deck
+const [newDeck] = await db
+  .insert(decksTable)
+  .values({ userId, name, description })
+  .returning();
+```

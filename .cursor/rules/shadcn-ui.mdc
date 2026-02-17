@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+description: Use shadcn UI components for all UI work and install missing shadcn setup/components with the standard commands.
+---
+# Shadcn UI Requirement
+
+This project uses shadcn UI for all UI elements.
+
+- If shadcn UI is not initialized in the project, run:
+  - `npx shadcn@latest init`
+- If a particular component is not installed, run:
+  - `npx shadcn@latest add <component>`
+  - Example: `npx shadcn@latest add button`

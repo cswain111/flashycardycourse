@@ -1,0 +1,155 @@
+---
+alwaysApply: true
+---
+
+# Clerk Authentication & Data Access Security
+
+This project uses Clerk for authentication. **Security is paramount**: users must only access their own data.
+
+## Authentication
+
+- All authentication is handled by Clerk
+- Use `@clerk/nextjs` components and utilities
+- User identity is managed through Clerk's `userId`
+
+## Data Access Rules
+
+### Critical Security Requirements
+
+1. **Always filter by userId**: Every database query that retrieves user-specific data MUST filter by the authenticated user's `userId`
+2. **Never trust client input for userId**: Always get `userId` from Clerk's server-side auth, never from request parameters or client-side code
+3. **Validate ownership**: When accessing a specific resource (deck, card, etc.), verify it belongs to the authenticated user
+
+### Server-Side Authentication
+
+Use Clerk's server-side methods to get the authenticated user:
+
+```typescript
+import { auth } from "@clerk/nextjs/server";
+
+// In Server Components
+const { userId } = await auth();
+if (!userId) {
+  // Handle unauthorized access
+  redirect('/sign-in');
+}
+
+// In API Routes (App Router)
+export async function GET(request: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  // Use userId to filter data
+}
+```
+
+### Database Query Security
+
+Always filter queries by the authenticated user's `userId` when accessing user-specific data:
+
+```typescript
+// ✅ CORRECT - Filtering by userId
+const userDecks = await db
+  .select()
+  .from(decksTable)
+  .where(eq(decksTable.userId, userId));
+
+// ❌ WRONG - No userId filter, exposes all users' data
+const allDecks = await db.select().from(decksTable);
+```
+
+### Ownership Verification
+
+When accessing a specific resource by ID, verify it belongs to the user:
+
+```typescript
+// ✅ CORRECT - Verify deck ownership
+const [deck] = await db
+  .select()
+  .from(decksTable)
+  .where(and(
+    eq(decksTable.id, deckId),
+    eq(decksTable.userId, userId)
+  ));
+
+if (!deck) {
+  return new Response('Not found or unauthorized', { status: 404 });
+}
+```
+
+### Cascade Security for Related Data
+
+When accessing cards, verify the parent deck belongs to the user:
+
+```typescript
+// ✅ CORRECT - Join to verify deck ownership
+const cards = await db
+  .select()
+  .from(cardsTable)
+  .innerJoin(decksTable, eq(cardsTable.deckId, decksTable.id))
+  .where(and(
+    eq(cardsTable.deckId, deckId),
+    eq(decksTable.userId, userId)
+  ));
+```
+
+## Common Patterns
+
+### Server Actions
+
+```typescript
+'use server';
+
+import { auth } from "@clerk/nextjs/server";
+import { db } from "@/db";
+
+export async function createDeck(name: string, description?: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+  
+  const [newDeck] = await db
+    .insert(decksTable)
+    .values({ userId, name, description })
+    .returning();
+  
+  return newDeck;
+}
+```
+
+### API Routes
+
+```typescript
+import { auth } from "@clerk/nextjs/server";
+import { db } from "@/db";
+
+export async function GET(request: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  
+  const decks = await db
+    .select()
+    .from(decksTable)
+    .where(eq(decksTable.userId, userId));
+  
+  return Response.json(decks);
+}
+```
+
+## Security Checklist
+
+Before implementing any data access:
+
+- [ ] Am I using Clerk's `auth()` to get the userId?
+- [ ] Am I filtering the query by userId?
+- [ ] Am I verifying ownership for specific resource access?
+- [ ] Am I handling unauthorized access appropriately?
+- [ ] Am I never trusting client-provided userId values?
+
+## Schema Reference
+
+See [src/db/schema.ts](mdc:src/db/schema.ts) for the database schema. Note that:
+- `decksTable.userId` stores the Clerk user ID
+- `cardsTable` references `decksTable` with cascade delete
