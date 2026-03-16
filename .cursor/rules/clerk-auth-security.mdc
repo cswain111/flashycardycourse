@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 # Clerk Authentication & Data Access Security
 
 This project uses Clerk for authentication. **Security is paramount**: users must only access their own data.
@@ -30,8 +29,8 @@ import { auth } from "@clerk/nextjs/server";
 // In Server Components
 const { userId } = await auth();
 if (!userId) {
-  // Handle unauthorized access
-  redirect('/sign-in');
+  // Handle unauthorized access - redirect to homepage where sign-in/sign-up buttons are
+  redirect('/');
 }
 
 // In API Routes (App Router)
