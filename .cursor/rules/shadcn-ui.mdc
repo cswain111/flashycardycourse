@@ -2,12 +2,75 @@
 alwaysApply: true
 description: Use shadcn UI components for all UI work and install missing shadcn setup/components with the standard commands.
 ---
-# Shadcn UI Requirement
+# Shadcn UI - STRICT REQUIREMENT
 
-This project uses shadcn UI for all UI elements.
+## ⚠️ CRITICAL RULE: ONLY SHADCN UI COMPONENTS ALLOWED
 
-- If shadcn UI is not initialized in the project, run:
-  - `npx shadcn@latest init`
-- If a particular component is not installed, run:
-  - `npx shadcn@latest add <component>`
-  - Example: `npx shadcn@latest add button`
+This project **EXCLUSIVELY** uses shadcn UI for **ALL** UI elements. 
+
+### Absolute Requirements
+
+1. **NO CUSTOM UI COMPONENTS**: 
+   - **NEVER** create custom buttons, inputs, forms, cards, dialogs, or any other UI elements from scratch
+   - **ALWAYS** use shadcn UI components for every UI need
+   - If a component doesn't exist, install it with shadcn
+
+2. **NO CUSTOM STYLING FOR UI PRIMITIVES**:
+   - **DO NOT** create custom styled divs that mimic buttons, inputs, etc.
+   - **DO NOT** write custom CSS for UI component behavior
+   - Use shadcn components and their built-in variants
+
+3. **Component Installation**:
+   - If shadcn UI is not initialized: `npx shadcn@latest init`
+   - For any needed component: `npx shadcn@latest add <component>`
+   - Examples: `button`, `card`, `dialog`, `input`, `form`, `select`, `dropdown-menu`, etc.
+
+### Clerk Authentication UI Requirements
+
+**Sign In and Sign Up buttons MUST use shadcn UI components:**
+
+1. **Use shadcn Button component** for Sign In/Sign Up buttons:
+   ```tsx
+   import { Button } from "@/components/ui/button";
+   <Button asChild><Link href="/sign-in">Sign In</Link></Button>
+   ```
+
+2. **Clerk should use Modal/Dialog approach**:
+   - Import Clerk components: `<SignIn />`, `<SignUp />`
+   - Wrap in shadcn Dialog component for modal presentation
+   - Example structure:
+   ```tsx
+   import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+   import { Button } from "@/components/ui/button";
+   import { SignIn } from "@clerk/nextjs";
+   
+   <Dialog>
+     <DialogTrigger asChild>
+       <Button>Sign In</Button>
+     </DialogTrigger>
+     <DialogContent>
+       <SignIn />
+     </DialogContent>
+   </Dialog>
+   ```
+
+3. **NO separate Clerk hosted pages** unless absolutely necessary
+   - Prefer modal/dialog-based authentication flow
+   - Keep users on the same page during authentication
+
+### Enforcement
+
+- **Before creating ANY UI element**, check if shadcn has a component for it
+- **If in doubt**, use shadcn UI
+- **No exceptions** - this is a hard requirement for project consistency
+
+### Available shadcn Components
+
+Common components to use (install as needed):
+- `button`, `input`, `textarea`, `label`, `checkbox`, `radio-group`
+- `card`, `dialog`, `alert-dialog`, `sheet`, `popover`, `dropdown-menu`
+- `form`, `select`, `switch`, `slider`, `tabs`, `accordion`
+- `table`, `badge`, `avatar`, `separator`, `skeleton`
+- `toast`, `tooltip`, `progress`, `scroll-area`
+
+**Remember**: Install first, use always. Never create custom.
