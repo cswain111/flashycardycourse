@@ -10,6 +10,7 @@ import {
 } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -40,7 +41,11 @@ export default function RootLayout({
         >
           <header className="border-b border-border bg-background">
             <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-              <h1 className="text-xl font-semibold">Flashy Cardy Course</h1>
+              <Link href="/">
+                <h1 className="text-xl font-semibold hover:text-primary transition-colors cursor-pointer">
+                  Flashy Cardy Course
+                </h1>
+              </Link>
               <div className="flex gap-4 items-center">
                 <SignedOut>
                   <SignInButton mode="modal">
@@ -55,6 +60,9 @@ export default function RootLayout({
                   </SignUpButton>
                 </SignedOut>
                 <SignedIn>
+                  <Button variant="ghost" asChild>
+                    <Link href="/dashboard">Dashboard</Link>
+                  </Button>
                   <UserButton />
                 </SignedIn>
               </div>
