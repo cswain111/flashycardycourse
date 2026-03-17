@@ -4,18 +4,25 @@ import { getUserDecks } from "@/actions/deck-actions";
 import { CreateDeckDialog } from "@/components/create-deck-dialog";
 import { DeckCard } from "@/components/deck-card";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Link from "next/link";
+import { AlertCircle, Crown } from "lucide-react";
 
 export default async function DashboardPage() {
   // Authenticate user
-  const { userId } = await auth();
+  const { userId, has } = await auth();
   
   if (!userId) {
-    redirect("/sign-in");
+    redirect("/");
   }
 
   // Fetch user's decks
   const decks = await getUserDecks();
+  
+  // Check if user has unlimited decks
+  const hasUnlimitedDecks = has({ feature: "unlimited_decks" });
+  const deckCount = decks.length;
+  const isAtLimit = !hasUnlimitedDecks && deckCount >= 3;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -26,8 +33,32 @@ export default async function DashboardPage() {
             Manage your flashcard decks
           </p>
         </div>
-        <CreateDeckDialog />
+        <CreateDeckDialog disabled={isAtLimit} />
       </div>
+
+      {/* Deck limit alert for free users */}
+      {!hasUnlimitedDecks && (
+        <Alert className="mb-6" variant={isAtLimit ? "destructive" : "default"}>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>
+            {isAtLimit ? "Deck Limit Reached" : "Free Plan"}
+          </AlertTitle>
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              {isAtLimit 
+                ? `You've reached the free plan limit of 3 decks. Upgrade to Pro for unlimited decks.`
+                : `You're using ${deckCount} of 3 decks on the free plan.`
+              }
+            </span>
+            <Button asChild variant={isAtLimit ? "default" : "outline"} size="sm" className="ml-4">
+              <Link href="/pricing">
+                <Crown className="h-4 w-4 mr-2" />
+                Upgrade to Pro
+              </Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {decks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 px-4">
@@ -36,7 +67,7 @@ export default async function DashboardPage() {
             <p className="text-muted-foreground">
               Create your first flashcard deck to get started learning!
             </p>
-            <CreateDeckDialog />
+            <CreateDeckDialog disabled={isAtLimit} />
           </div>
         </div>
       ) : (

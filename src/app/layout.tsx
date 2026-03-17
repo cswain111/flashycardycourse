@@ -34,6 +34,10 @@ export default function RootLayout({
       appearance={{
         baseTheme: dark,
       }}
+      signInUrl="/"
+      signUpUrl="/"
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/dashboard"
     >
       <html lang="en" className="dark">
         <body
@@ -48,12 +52,12 @@ export default function RootLayout({
               </Link>
               <div className="flex gap-4 items-center">
                 <SignedOut>
-                  <SignInButton mode="modal">
+                  <SignInButton mode="modal" forceRedirectUrl="/dashboard">
                     <Button>
                       Sign In
                     </Button>
                   </SignInButton>
-                  <SignUpButton mode="modal">
+                  <SignUpButton mode="modal" forceRedirectUrl="/dashboard">
                     <Button variant="outline">
                       Sign Up
                     </Button>

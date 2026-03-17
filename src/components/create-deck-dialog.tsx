@@ -17,7 +17,11 @@ import { Label } from "@/components/ui/label";
 import { createDeck } from "@/actions/deck-actions";
 import type { CreateDeckInput } from "@/schemas/deck-schemas";
 
-export function CreateDeckDialog() {
+interface CreateDeckDialogProps {
+  disabled?: boolean;
+}
+
+export function CreateDeckDialog({ disabled = false }: CreateDeckDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -55,7 +59,9 @@ export function CreateDeckDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="lg">Create New Deck</Button>
+        <Button size="lg" disabled={disabled}>
+          Create New Deck
+        </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <form onSubmit={handleSubmit}>

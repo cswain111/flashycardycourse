@@ -1,9 +1,6 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db } from "@/db";
-import { cardsTable, decksTable } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   createCardSchema,
@@ -13,6 +10,15 @@ import {
   type UpdateCardInput,
   type DeleteCardInput,
 } from "@/schemas/card-schemas";
+import {
+  getCardsByDeckId as getCardsByDeckIdQuery,
+  getCardById as getCardByIdQuery,
+  getCardByIdUnsafe,
+  verifyDeckOwnership,
+  insertCard,
+  updateCard as updateCardQuery,
+  deleteCard as deleteCardQuery,
+} from "@/db/queries/cards";
 
 /**
  * Create a new card in a deck (only if the deck belongs to the authenticated user)
@@ -28,26 +34,18 @@ export async function createCard(input: CreateCardInput) {
   const validated = createCardSchema.parse(input);
 
   // 3. Verify deck ownership
-  const [deck] = await db
-    .select()
-    .from(decksTable)
-    .where(
-      and(eq(decksTable.id, validated.deckId), eq(decksTable.userId, userId))
-    );
+  const isOwner = await verifyDeckOwnership(validated.deckId, userId);
 
-  if (!deck) {
+  if (!isOwner) {
     throw new Error("Deck not found or unauthorized");
   }
 
-  // 4. Create the card
-  const [newCard] = await db
-    .insert(cardsTable)
-    .values({
-      deckId: validated.deckId,
-      front: validated.front,
-      back: validated.back,
-    })
-    .returning();
+  // 4. Call mutation function
+  const newCard = await insertCard({
+    deckId: validated.deckId,
+    front: validated.front,
+    back: validated.back,
+  });
 
   // 5. Revalidate the deck page
   revalidatePath(`/decks/${validated.deckId}`);
@@ -68,36 +66,24 @@ export async function updateCard(input: UpdateCardInput) {
   // 2. Validate with Zod
   const validated = updateCardSchema.parse(input);
 
-  // 3. Verify ownership through deck join and update
-  const result = await db
-    .update(cardsTable)
-    .set({
-      front: validated.front,
-      back: validated.back,
-      updatedAt: new Date(),
-    })
-    .where(eq(cardsTable.id, validated.id))
-    .returning();
+  // 3. Call mutation function
+  const updatedCard = await updateCardQuery(validated.id, {
+    front: validated.front,
+    back: validated.back,
+  });
 
-  if (result.length === 0) {
+  if (!updatedCard) {
     throw new Error("Card not found");
   }
 
-  const [updatedCard] = result;
+  // 4. Verify deck ownership
+  const isOwner = await verifyDeckOwnership(updatedCard.deckId, userId);
 
-  // Verify the deck belongs to the user
-  const [deck] = await db
-    .select()
-    .from(decksTable)
-    .where(
-      and(eq(decksTable.id, updatedCard.deckId), eq(decksTable.userId, userId))
-    );
-
-  if (!deck) {
+  if (!isOwner) {
     throw new Error("Unauthorized");
   }
 
-  // 4. Revalidate the deck page
+  // 5. Revalidate the deck page
   revalidatePath(`/decks/${updatedCard.deckId}`);
 
   return updatedCard;
@@ -117,30 +103,21 @@ export async function deleteCard(input: DeleteCardInput) {
   const validated = deleteCardSchema.parse(input);
 
   // 3. Get the card first to know which deck it belongs to
-  const [card] = await db
-    .select()
-    .from(cardsTable)
-    .where(eq(cardsTable.id, validated.id));
+  const card = await getCardByIdUnsafe(validated.id);
 
   if (!card) {
     throw new Error("Card not found");
   }
 
   // 4. Verify deck ownership
-  const [deck] = await db
-    .select()
-    .from(decksTable)
-    .where(and(eq(decksTable.id, card.deckId), eq(decksTable.userId, userId)));
+  const isOwner = await verifyDeckOwnership(card.deckId, userId);
 
-  if (!deck) {
+  if (!isOwner) {
     throw new Error("Unauthorized");
   }
 
-  // 5. Delete the card
-  const [deletedCard] = await db
-    .delete(cardsTable)
-    .where(eq(cardsTable.id, validated.id))
-    .returning();
+  // 5. Call mutation function
+  const deletedCard = await deleteCardQuery(validated.id);
 
   // 6. Revalidate the deck page
   revalidatePath(`/decks/${card.deckId}`);
@@ -159,21 +136,14 @@ export async function getCardsByDeckId(deckId: number) {
   }
 
   // 2. Verify deck ownership
-  const [deck] = await db
-    .select()
-    .from(decksTable)
-    .where(and(eq(decksTable.id, deckId), eq(decksTable.userId, userId)));
+  const isOwner = await verifyDeckOwnership(deckId, userId);
 
-  if (!deck) {
+  if (!isOwner) {
     throw new Error("Deck not found or unauthorized");
   }
 
-  // 3. Fetch cards for the deck
-  const cards = await db
-    .select()
-    .from(cardsTable)
-    .where(eq(cardsTable.deckId, deckId))
-    .orderBy(cardsTable.createdAt);
+  // 3. Call query function
+  const cards = await getCardsByDeckIdQuery(deckId);
 
   return cards;
 }
@@ -188,19 +158,12 @@ export async function getCardById(cardId: number) {
     throw new Error("Unauthorized");
   }
 
-  // 2. Fetch card with deck join to verify ownership
-  const result = await db
-    .select({
-      card: cardsTable,
-      deck: decksTable,
-    })
-    .from(cardsTable)
-    .innerJoin(decksTable, eq(cardsTable.deckId, decksTable.id))
-    .where(and(eq(cardsTable.id, cardId), eq(decksTable.userId, userId)));
+  // 2. Call query function
+  const card = await getCardByIdQuery(cardId, userId);
 
-  if (result.length === 0) {
+  if (!card) {
     throw new Error("Card not found or unauthorized");
   }
 
-  return result[0].card;
+  return card;
 }

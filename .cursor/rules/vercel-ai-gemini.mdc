@@ -1,0 +1,346 @@
+---
+alwaysApply: true
+---
+# Vercel AI SDK + Google Gemini Integration
+
+This project uses the **Vercel AI SDK** (`ai` npm package) to integrate with **Google Gemini** for AI-powered flashcard generation.
+
+## Installation
+
+```bash
+npm install ai @ai-sdk/google zod
+```
+
+## Environment Variables
+
+Add to `.env.local`:
+
+```
+GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
+```
+
+## Core Pattern: Generating Flashcards
+
+### Generating Multiple Flashcards with Structured Output
+
+Use `generateObject` from the Vercel AI SDK to generate an array of flashcards:
+
+```typescript
+import { generateObject } from 'ai';
+import { google } from '@ai-sdk/google';
+import { z } from 'zod';
+
+// Define the flashcard schema
+const flashcardSchema = z.object({
+  front: z.string().describe('The question or prompt on the front of the card'),
+  back: z.string().describe('The answer or information on the back of the card'),
+});
+
+// Generate multiple flashcards
+const { object } = await generateObject({
+  model: google('gemini-2.0-flash-exp'),
+  schema: z.object({
+    cards: z.array(flashcardSchema).describe('Array of flashcards'),
+  }),
+  prompt: `Generate ${count} flashcards about: ${topic}`,
+});
+
+// Result: object.cards is an array of { front: string, back: string }
+```
+
+### Alternative: Using `generateText` with `Output.object`
+
+For more control over the output structure:
+
+```typescript
+import { generateText, Output } from 'ai';
+import { google } from '@ai-sdk/google';
+import { z } from 'zod';
+
+const { output } = await generateText({
+  model: google('gemini-2.0-flash-exp'),
+  output: Output.object({
+    schema: z.object({
+      cards: z.array(
+        z.object({
+          front: z.string(),
+          back: z.string(),
+        })
+      ),
+    }),
+  }),
+  prompt: `Generate ${count} flashcards about: ${topic}`,
+});
+
+// Result: output.cards is an array of flashcards
+```
+
+## Implementation in Server Actions
+
+### Example: AI Flashcard Generation Action
+
+Create in `src/actions/ai-actions.ts`:
+
+```typescript
+'use server';
+
+import { auth } from '@clerk/nextjs/server';
+import { generateObject } from 'ai';
+import { google } from '@ai-sdk/google';
+import { z } from 'zod';
+import { revalidatePath } from 'next/cache';
+import { insertCard } from '@/db/queries/cards';
+import { verifyDeckOwnership } from '@/db/queries/cards';
+
+// Input validation schema
+const generateCardsSchema = z.object({
+  deckId: z.number(),
+  topic: z.string().min(1).max(500),
+  count: z.number().min(1).max(20),
+  difficulty: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
+});
+
+export async function generateAIFlashcards(input: z.infer<typeof generateCardsSchema>) {
+  // 1. Authenticate
+  const { userId, has } = await auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  // 2. Check for AI feature access (Pro plan)
+  const hasAIGeneration = has({ feature: 'ai_flashcard_generation' });
+  if (!hasAIGeneration) {
+    throw new Error('AI flashcard generation requires Pro plan');
+  }
+
+  // 3. Validate input
+  const validated = generateCardsSchema.parse(input);
+
+  // 4. Verify deck ownership
+  const isOwner = await verifyDeckOwnership(validated.deckId, userId);
+  if (!isOwner) {
+    throw new Error('Deck not found or unauthorized');
+  }
+
+  // 5. Generate flashcards with AI
+  const { object } = await generateObject({
+    model: google('gemini-2.0-flash-exp'),
+    schema: z.object({
+      cards: z.array(
+        z.object({
+          front: z.string().describe('Question or prompt'),
+          back: z.string().describe('Answer or explanation'),
+        })
+      ),
+    }),
+    prompt: buildPrompt(validated.topic, validated.count, validated.difficulty),
+  });
+
+  // 6. Insert cards into database
+  const insertedCards = [];
+  for (const card of object.cards) {
+    const newCard = await insertCard({
+      deckId: validated.deckId,
+      front: card.front,
+      back: card.back,
+    });
+    insertedCards.push(newCard);
+  }
+
+  // 7. Revalidate
+  revalidatePath(`/decks/${validated.deckId}`);
+
+  return {
+    success: true,
+    cardsGenerated: insertedCards.length,
+    cards: insertedCards,
+  };
+}
+
+// Helper function to build effective prompts
+function buildPrompt(topic: string, count: number, difficulty?: string): string {
+  const difficultyText = difficulty 
+    ? `at ${difficulty} level` 
+    : '';
+  
+  return `Generate exactly ${count} educational flashcards about "${topic}" ${difficultyText}.
+
+Requirements:
+- Each card should have a clear question/prompt on the front
+- Each card should have a concise, accurate answer on the back
+- Cover different aspects of the topic
+- Make cards educational and memorable
+- Keep front text under 200 characters
+- Keep back text under 500 characters
+`;
+}
+```
+
+## Best Practices
+
+### 1. Always Check Feature Access
+
+Before calling AI generation, verify the user has the required plan:
+
+```typescript
+const { has } = await auth();
+const hasAIGeneration = has({ feature: 'ai_flashcard_generation' });
+if (!hasAIGeneration) {
+  throw new Error('AI generation requires Pro plan');
+}
+```
+
+See [clerk-billing.mdc](mdc:.cursor/rules/clerk-billing.mdc) for more details.
+
+### 2. Rate Limiting
+
+Consider implementing rate limiting to prevent abuse:
+
+```typescript
+// Check user's AI generation count today
+const generationsToday = await getAIGenerationCount(userId, new Date());
+const MAX_GENERATIONS_PER_DAY = 50;
+
+if (generationsToday >= MAX_GENERATIONS_PER_DAY) {
+  throw new Error('Daily AI generation limit reached');
+}
+```
+
+### 3. Error Handling
+
+Wrap AI calls in try-catch blocks:
+
+```typescript
+try {
+  const { object } = await generateObject({
+    model: google('gemini-2.0-flash-exp'),
+    schema: flashcardSchema,
+    prompt: userPrompt,
+  });
+  return object;
+} catch (error) {
+  console.error('AI generation failed:', error);
+  throw new Error('Failed to generate flashcards. Please try again.');
+}
+```
+
+### 4. Cost Management
+
+- Set reasonable limits on cards per generation (max 20)
+- Use the appropriate model for your use case:
+  - `gemini-2.0-flash-exp` - Fast, cost-effective
+  - `gemini-1.5-pro` - More capable, higher quality
+- Cache common generations if applicable
+
+### 5. Prompt Engineering
+
+Effective prompts should:
+- Specify the exact number of cards needed
+- Define the difficulty level or target audience
+- Include constraints (character limits, format requirements)
+- Provide context about the learning objectives
+
+## Model Options
+
+Available Google Gemini models via Vercel AI SDK:
+
+- `gemini-2.0-flash-exp` - Fastest, most cost-effective (recommended for flashcards)
+- `gemini-1.5-flash` - Fast and capable
+- `gemini-1.5-pro` - Most capable, slower, more expensive
+- `gemini-exp-1206` - Experimental high-quality model
+
+## Schema Design Tips
+
+### Using Zod Descriptions
+
+Add descriptions to help the AI understand what to generate:
+
+```typescript
+const cardSchema = z.object({
+  front: z.string()
+    .describe('A clear, concise question or prompt')
+    .min(10)
+    .max(200),
+  back: z.string()
+    .describe('A detailed answer with explanation')
+    .min(20)
+    .max(500),
+  tags: z.array(z.string())
+    .describe('2-3 relevant topic tags')
+    .optional(),
+});
+```
+
+### Validating AI Output
+
+Always validate the AI-generated content before inserting into database:
+
+```typescript
+const { object } = await generateObject({
+  model: google('gemini-2.0-flash-exp'),
+  schema: cardsSchema,
+  prompt: userPrompt,
+});
+
+// Validate each card
+for (const card of object.cards) {
+  if (!card.front || !card.back) {
+    throw new Error('Invalid card generated');
+  }
+  if (card.front.length < 5 || card.back.length < 10) {
+    throw new Error('Card content too short');
+  }
+}
+```
+
+## UI Integration
+
+### Loading States
+
+Show progress during AI generation:
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { generateAIFlashcards } from '@/actions/ai-actions';
+
+export function AIGenerateButton({ deckId }: { deckId: number }) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    try {
+      await generateAIFlashcards({
+        deckId,
+        topic: 'JavaScript Promises',
+        count: 5,
+      });
+      alert('Flashcards generated successfully!');
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+  
+  return (
+    <button onClick={handleGenerate} disabled={isGenerating}>
+      {isGenerating ? 'Generating...' : 'Generate Flashcards'}
+    </button>
+  );
+}
+```
+
+## Related Files
+
+- [card-actions.ts](mdc:src/actions/card-actions.ts) - Manual card CRUD operations
+- [clerk-billing.mdc](mdc:.cursor/rules/clerk-billing.mdc) - Feature gating for AI generation
+- [data-handling.mdc](mdc:.cursor/rules/data-handling.mdc) - Data validation patterns
+
+## Resources
+
+- [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs)
+- [Google AI SDK Provider](https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai)
+- [Structured Output Guide](https://sdk.vercel.ai/docs/ai-sdk-core/generating-structured-data)
+- [Zod Documentation](https://zod.dev/)

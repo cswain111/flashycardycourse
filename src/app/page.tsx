@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { SignInButton, SignUpButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 
 export default async function Home() {
@@ -24,16 +24,16 @@ export default async function Home() {
         </div>
         
         <div className="flex flex-col gap-4 sm:flex-row">
-          <Button variant="outline" asChild>
-            <Link href="/sign-in">
+          <SignInButton mode="modal" forceRedirectUrl="/dashboard">
+            <Button variant="outline">
               Sign In
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href="/sign-up">
+            </Button>
+          </SignInButton>
+          <SignUpButton mode="modal" forceRedirectUrl="/dashboard">
+            <Button>
               Sign Up
-            </Link>
-          </Button>
+            </Button>
+          </SignUpButton>
         </div>
       </main>
     </div>

@@ -1,9 +1,6 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db } from "@/db";
-import { decksTable } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   createDeckSchema,
@@ -13,32 +10,49 @@ import {
   type UpdateDeckInput,
   type DeleteDeckInput,
 } from "@/schemas/deck-schemas";
+import {
+  getUserDecks as getUserDecksQuery,
+  getDeckById as getDeckByIdQuery,
+  insertDeck,
+  updateDeck as updateDeckQuery,
+  deleteDeck as deleteDeckQuery,
+} from "@/db/queries/decks";
 
 /**
  * Create a new deck for the authenticated user
  */
 export async function createDeck(input: CreateDeckInput) {
   // 1. Authenticate
-  const { userId } = await auth();
+  const { userId, has } = await auth();
   if (!userId) {
     throw new Error("Unauthorized");
   }
 
-  // 2. Validate with Zod
+  // 2. Check if user has unlimited decks feature
+  const hasUnlimitedDecks = has({ feature: "unlimited_decks" });
+
+  // 3. If not unlimited, check deck limit
+  if (!hasUnlimitedDecks) {
+    const userDecks = await getUserDecksQuery(userId);
+    if (userDecks.length >= 3) {
+      throw new Error(
+        "Free users are limited to 3 decks. Upgrade to Pro for unlimited decks."
+      );
+    }
+  }
+
+  // 4. Validate with Zod
   const validated = createDeckSchema.parse(input);
 
-  // 3. Perform database operation
-  const [newDeck] = await db
-    .insert(decksTable)
-    .values({
-      userId,
-      name: validated.name,
-      description: validated.description,
-    })
-    .returning();
+  // 5. Call mutation function
+  const newDeck = await insertDeck({
+    userId,
+    name: validated.name,
+    description: validated.description,
+  });
 
-  // 4. Revalidate the decks page
-  revalidatePath("/decks");
+  // 6. Revalidate the dashboard page
+  revalidatePath("/dashboard");
 
   return newDeck;
 }
@@ -56,23 +70,18 @@ export async function updateDeck(input: UpdateDeckInput) {
   // 2. Validate with Zod
   const validated = updateDeckSchema.parse(input);
 
-  // 3. Verify ownership and update
-  const [updatedDeck] = await db
-    .update(decksTable)
-    .set({
-      name: validated.name,
-      description: validated.description,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(decksTable.id, validated.id), eq(decksTable.userId, userId)))
-    .returning();
+  // 3. Call mutation function
+  const updatedDeck = await updateDeckQuery(validated.id, userId, {
+    name: validated.name,
+    description: validated.description,
+  });
 
   if (!updatedDeck) {
     throw new Error("Deck not found or unauthorized");
   }
 
   // 4. Revalidate relevant pages
-  revalidatePath("/decks");
+  revalidatePath("/dashboard");
   revalidatePath(`/decks/${validated.id}`);
 
   return updatedDeck;
@@ -92,18 +101,15 @@ export async function deleteDeck(input: DeleteDeckInput) {
   // 2. Validate with Zod
   const validated = deleteDeckSchema.parse(input);
 
-  // 3. Verify ownership and delete
-  const [deletedDeck] = await db
-    .delete(decksTable)
-    .where(and(eq(decksTable.id, validated.id), eq(decksTable.userId, userId)))
-    .returning();
+  // 3. Call mutation function
+  const deletedDeck = await deleteDeckQuery(validated.id, userId);
 
   if (!deletedDeck) {
     throw new Error("Deck not found or unauthorized");
   }
 
-  // 4. Revalidate the decks page
-  revalidatePath("/decks");
+  // 4. Revalidate the dashboard page
+  revalidatePath("/dashboard");
 
   return deletedDeck;
 }
@@ -118,12 +124,8 @@ export async function getUserDecks() {
     throw new Error("Unauthorized");
   }
 
-  // 2. Fetch decks filtered by userId
-  const decks = await db
-    .select()
-    .from(decksTable)
-    .where(eq(decksTable.userId, userId))
-    .orderBy(decksTable.createdAt);
+  // 2. Call query function
+  const decks = await getUserDecksQuery(userId);
 
   return decks;
 }
@@ -138,11 +140,8 @@ export async function getDeckById(deckId: number) {
     throw new Error("Unauthorized");
   }
 
-  // 2. Fetch deck with ownership verification
-  const [deck] = await db
-    .select()
-    .from(decksTable)
-    .where(and(eq(decksTable.id, deckId), eq(decksTable.userId, userId)));
+  // 2. Call query function
+  const deck = await getDeckByIdQuery(deckId, userId);
 
   if (!deck) {
     throw new Error("Deck not found or unauthorized");
